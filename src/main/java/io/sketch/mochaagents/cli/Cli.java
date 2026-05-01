@@ -2,13 +2,11 @@ package io.sketch.mochaagents.cli;
 
 import io.sketch.mochaagents.agents.CodeAgent;
 import io.sketch.mochaagents.agents.ToolCallingAgent;
-import com.smolagents.models.*;
 import io.sketch.mochaagents.models.AzureOpenAIModel;
 import io.sketch.mochaagents.models.HuggingFaceModel;
 import io.sketch.mochaagents.models.Model;
 import io.sketch.mochaagents.models.OpenAIModel;
 import io.sketch.mochaagents.tools.Tool;
-import com.smolagents.tools.defaults.*;
 import io.sketch.mochaagents.tools.defaults.DuckDuckGoSearchTool;
 import io.sketch.mochaagents.tools.defaults.VisitWebpageTool;
 import io.sketch.mochaagents.tools.defaults.WikipediaSearchTool;
@@ -17,7 +15,13 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Properties;
+import java.util.Scanner;
 
 public class Cli {
     

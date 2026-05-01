@@ -4,7 +4,12 @@ import io.sketch.mochaagents.agents.CodeAgent;
 import io.sketch.mochaagents.models.InferenceClientModel;
 import io.sketch.mochaagents.tools.BaseTool;
 
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Statement;
 
 public class TextToSqlExample {
 

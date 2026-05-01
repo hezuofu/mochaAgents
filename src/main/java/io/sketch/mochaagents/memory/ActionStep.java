@@ -1,7 +1,6 @@
 package io.sketch.mochaagents.memory;
 
 import io.sketch.mochaagents.agents.StreamEvent;
-import com.smolagents.models.*;
 import io.sketch.mochaagents.models.ChatMessage;
 import io.sketch.mochaagents.models.MessageRole;
 import io.sketch.mochaagents.models.TokenUsage;

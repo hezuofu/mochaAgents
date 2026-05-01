@@ -1,6 +1,6 @@
 package io.sketch.mochaagents.agents;
 
-import com.smolagents.models.*;
+import io.sketch.mochaagents.models.ChatMessageStreamDelta;
 import io.sketch.mochaagents.models.TokenUsage;
 
 import java.util.List;

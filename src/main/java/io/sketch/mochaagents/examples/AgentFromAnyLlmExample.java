@@ -2,7 +2,6 @@ package io.sketch.mochaagents.examples;
 
 import io.sketch.mochaagents.agents.CodeAgent;
 import io.sketch.mochaagents.agents.ToolCallingAgent;
-import com.smolagents.models.*;
 import io.sketch.mochaagents.models.InferenceClientModel;
 import io.sketch.mochaagents.models.LiteLLMModel;
 import io.sketch.mochaagents.models.Model;

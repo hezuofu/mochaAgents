@@ -1,12 +1,15 @@
 package io.sketch.mochaagents.agents;
 
-import com.smolagents.memory.*;
-import com.smolagents.models.*;
 import io.sketch.mochaagents.memory.ActionStep;
+import io.sketch.mochaagents.memory.AgentError;
+import io.sketch.mochaagents.memory.AgentMemory;
 import io.sketch.mochaagents.memory.FinalAnswerStep;
 import io.sketch.mochaagents.memory.TaskStep;
 import io.sketch.mochaagents.memory.Timing;
 import io.sketch.mochaagents.models.ChatMessage;
+import io.sketch.mochaagents.models.MessageRole;
+import io.sketch.mochaagents.models.Model;
+import io.sketch.mochaagents.models.TokenUsage;
 import io.sketch.mochaagents.models.ToolCall;
 import io.sketch.mochaagents.tools.Tool;
 

@@ -1,8 +1,12 @@
 package io.sketch.mochaagents.agents;
 
-import com.smolagents.memory.*;
-import com.smolagents.models.*;
-import io.sketch.mochaagents.memory.*;
+import io.sketch.mochaagents.memory.ActionStep;
+import io.sketch.mochaagents.memory.AgentMemory;
+import io.sketch.mochaagents.memory.FinalAnswerStep;
+import io.sketch.mochaagents.memory.MemoryStep;
+import io.sketch.mochaagents.memory.PlanningStep;
+import io.sketch.mochaagents.memory.TaskStep;
+import io.sketch.mochaagents.memory.Timing;
 import io.sketch.mochaagents.models.ChatMessage;
 import io.sketch.mochaagents.models.MessageRole;
 import io.sketch.mochaagents.models.Model;
@@ -11,7 +15,15 @@ import io.sketch.mochaagents.monitoring.LogLevel;
 import io.sketch.mochaagents.monitoring.Monitor;
 import io.sketch.mochaagents.tools.Tool;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.stream.Stream;
 
 /**

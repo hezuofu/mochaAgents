@@ -1,6 +1,5 @@
 package io.sketch.mochaagents.agents;
 
-import com.smolagents.models.*;
 import io.sketch.mochaagents.models.ChatMessage;
 import io.sketch.mochaagents.models.MessageRole;
 import io.sketch.mochaagents.models.Model;
@@ -12,7 +11,9 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Map;
 
-import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * CodeAgent 测试类
