@@ -1,5 +1,7 @@
 package io.sketch.mochaagents.tools;
 
+import io.sketch.mochaagents.types.AgentTypeHandlers;
+
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -49,7 +51,10 @@ public abstract class AbstractTool implements Tool {
             setup();
             initialized = true;
         }
-        return forward(arguments);
+        boolean sanitize = sanitizeAgentTypes();
+        Map<String, Object> in = sanitize ? AgentTypeHandlers.unwrapArguments(arguments) : arguments;
+        Object out = forward(in);
+        return sanitize ? AgentTypeHandlers.handleAgentOutputTypes(out, getOutputType()) : out;
     }
     
     /**

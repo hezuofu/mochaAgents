@@ -37,6 +37,17 @@ public class LiteLLMRouterModel implements Model {
     }
 
     @Override
+    public ChatMessage generate(
+        List<ChatMessage> messages,
+        List<Tool> tools,
+        List<String> stopSequences,
+        ResponseFormat format,
+        Map<String, Object> extraParameters
+    ) {
+        return generate(messages, tools, format);
+    }
+
+    @Override
     public ChatMessage generateWithStop(List<ChatMessage> messages, List<String> stopSequences) {
         return generate(messages);
     }

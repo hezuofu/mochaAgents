@@ -8,7 +8,7 @@ import java.util.List;
 public record FinalAnswerStep(Object output) implements MemoryStep {
     
     @Override
-    public List<ChatMessage> toMessages() {
+    public List<ChatMessage> toMessages(boolean summaryMode) {
         return List.of(ChatMessage.text(MessageRole.ASSISTANT, output.toString()));
     }
 }

@@ -11,6 +11,11 @@ public record ChatMessage(
     public static ChatMessage text(MessageRole role, String text) {
         return new ChatMessage(role, List.of(new ChatMessageContent.TextContent(text)), null, null);
     }
+
+    /** Multimodal user message (text + optional images), for {@link io.sketch.mochaagents.memory.TaskStep}. */
+    public static ChatMessage userMultipart(List<ChatMessageContent> parts) {
+        return new ChatMessage(MessageRole.USER, List.copyOf(parts), null, null);
+    }
     
     public static ChatMessage toolCall(List<ToolCall> toolCalls) {
         return new ChatMessage(MessageRole.TOOL_CALL, 

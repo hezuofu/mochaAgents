@@ -25,11 +25,11 @@ public record ActionStep(
 ) implements MemoryStep, StreamEvent {
     
     @Override
-    public List<ChatMessage> toMessages() {
+    public List<ChatMessage> toMessages(boolean summaryMode) {
         List<ChatMessage> messages = new ArrayList<>();
         
-        if (modelOutput != null) {
-            messages.add(ChatMessage.text(MessageRole.ASSISTANT, modelOutput));
+        if (modelOutput != null && !summaryMode) {
+            messages.add(ChatMessage.text(MessageRole.ASSISTANT, modelOutput.strip()));
         }
         
         if (toolCalls != null && !toolCalls.isEmpty()) {
@@ -37,13 +37,19 @@ public record ActionStep(
         }
         
         if (observations != null) {
-            messages.add(ChatMessage.text(MessageRole.TOOL_RESPONSE, 
+            messages.add(ChatMessage.text(MessageRole.TOOL_RESPONSE,
                 "Observation:\n" + observations));
         }
         
         if (error != null) {
-            messages.add(ChatMessage.text(MessageRole.TOOL_RESPONSE, 
-                "Error:\n" + error.message()));
+            String toolCallPrefix = "";
+            if (toolCalls != null && !toolCalls.isEmpty() && toolCalls.get(0).id() != null) {
+                toolCallPrefix = "Call id: " + toolCalls.get(0).id() + "\n";
+            }
+            messages.add(ChatMessage.text(MessageRole.TOOL_RESPONSE,
+                toolCallPrefix + "Error:\n" + error.message()
+                    + "\nNow let's retry: take care not to repeat previous errors! "
+                    + "If you have retried several times, try a completely different approach.\n"));
         }
         
         return messages;

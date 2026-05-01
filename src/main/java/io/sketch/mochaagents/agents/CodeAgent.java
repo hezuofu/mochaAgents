@@ -4,12 +4,12 @@ import io.sketch.mochaagents.executor.CodeOutput;
 import io.sketch.mochaagents.executor.Executor;
 import io.sketch.mochaagents.executor.LocalPythonExecutor;
 import io.sketch.mochaagents.executor.PythonExecutor;
+import io.sketch.mochaagents.executor.PythonFinalAnswerNormalizer;
 import io.sketch.mochaagents.memory.ActionStep;
 import io.sketch.mochaagents.memory.AgentError;
 import io.sketch.mochaagents.memory.AgentMemory;
 import io.sketch.mochaagents.memory.FinalAnswerStep;
 import io.sketch.mochaagents.memory.MemoryStep;
-import io.sketch.mochaagents.memory.TaskStep;
 import io.sketch.mochaagents.memory.Timing;
 import io.sketch.mochaagents.models.ChatMessage;
 import io.sketch.mochaagents.models.ChatMessageContent;
@@ -18,6 +18,7 @@ import io.sketch.mochaagents.models.Model;
 import io.sketch.mochaagents.models.ResponseFormat;
 import io.sketch.mochaagents.models.TokenUsage;
 import io.sketch.mochaagents.models.ToolCall;
+import io.sketch.mochaagents.models.ToolCallFunction;
 import io.sketch.mochaagents.monitoring.AgentLogger;
 import io.sketch.mochaagents.monitoring.LogLevel;
 import io.sketch.mochaagents.tools.Tool;
@@ -26,6 +27,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 
 import java.io.BufferedWriter;
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
@@ -49,6 +51,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Stream;
+
+import io.sketch.mochaagents.hub.HubClient;
 
 public class CodeAgent extends MultiStepAgent implements AutoCloseable {
     
@@ -86,11 +90,21 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
             : createExecutor(additionalImports);
         this.language = executor.getLanguage();
         
-        Map<String, Tool> toolMap = new HashMap<>();
-        for (Tool tool : tools.values()) {
+        refreshExecutorBindings();
+    }
+
+    private void refreshExecutorBindings() {
+        Map<String, Tool> toolMap = new LinkedHashMap<>();
+        for (Tool tool : inferenceToolsUnified()) {
             toolMap.put(tool.getName(), tool);
         }
-        this.executor.sendTools(toolMap);
+        executor.sendTools(toolMap);
+        executor.sendVariables(new LinkedHashMap<>(runState));
+    }
+
+    @Override
+    protected void onRunStart(AgentRunControls controls, String augmentedTask) {
+        refreshExecutorBindings();
     }
     
     private Executor createExecutor(List<String> additionalImports) {
@@ -115,14 +129,19 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
     @Override
     public String initializeSystemPrompt() {
         if (promptTemplates != null) {
-            return populateTemplate(promptTemplates.systemPrompt(), Map.of(
-                "tools", tools,
-                "authorized_imports", authorizedImports.contains("*") 
-                    ? "You can import from any package you want." 
-                    : authorizedImports.toString(),
-                "code_block_opening_tag", codeBlockTags[0],
-                "code_block_closing_tag", codeBlockTags[1]
-            ));
+            LinkedHashMap<String, Object> ctx = new LinkedHashMap<>();
+            ctx.put("tools", summarizeToolsCatalog());
+            ctx.put("managed_agents", summarizeManagedAgentsCatalog());
+            ctx.put("custom_instructions", instructions == null ? "" : instructions);
+            ctx.put(
+                "authorized_imports",
+                authorizedImports.contains("*")
+                    ? "You can import from any package you want."
+                    : authorizedImports.toString()
+            );
+            ctx.put("code_block_opening_tag", codeBlockTags[0]);
+            ctx.put("code_block_closing_tag", codeBlockTags[1]);
+            return promptRendering.render(promptTemplates.systemPrompt(), ctx);
         }
         
         return "You are a helpful assistant that writes Python code to solve problems. " +
@@ -140,12 +159,11 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
         
         ChatMessage modelOutput;
         try {
-            Map<String, Object> additionalArgs = new HashMap<>();
+            Map<String, Object> extras = new HashMap<>();
             if (useStructuredOutputsInternally) {
-                additionalArgs.put("response_format", "json");
+                extras.put("response_format", "json");
             }
-            
-            modelOutput = model.generateWithStop(messages, stopSequences);
+            modelOutput = model.generate(messages, List.of(), stopSequences, ResponseFormat.text(), extras);
         } catch (Exception e) {
             throw new RuntimeException("Error in generating model output: " + e.getMessage(), e);
         }
@@ -164,7 +182,7 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
             } else {
                 codeAction = parseCodeBlobs(outputText);
             }
-            codeAction = fixFinalAnswerCode(codeAction);
+            codeAction = PythonFinalAnswerNormalizer.fix(codeAction);
         } catch (Exception e) {
             throw new RuntimeException("Error in code parsing: " + e.getMessage() + 
                 "\nMake sure to provide correct code blobs.", e);
@@ -188,13 +206,20 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
         }
         
         timing = timing.end();
-        
+
+        List<ToolCall> interpreterTrace = List.of(
+            new ToolCall(
+                "call_" + stepNumber,
+                ToolCallFunction.of("python_interpreter", Map.of("code", codeAction))
+            ));
+
         return ActionStep.builder()
             .stepNumber(stepNumber)
             .timing(timing)
             .modelInputMessages(messages)
             .modelOutputMessage(modelOutput)
             .modelOutput(outputText)
+            .toolCalls(interpreterTrace)
             .codeAction(codeAction)
             .observations(observation)
             .actionOutput(codeOutput.output())
@@ -205,9 +230,6 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
     
     @Override
     protected Stream<StreamEvent> runStream(String task, int maxSteps) {
-        memory.reset();
-        memory.addStep(new TaskStep(task));
-        
         return java.util.stream.Stream.iterate(1, i -> i <= maxSteps, i -> i + 1)
             .map(step -> {
                 ActionStep actionStep = step(step);
@@ -224,17 +246,18 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
     
     @Override
     public Object run(String task, boolean stream) {
-        if (stream) {
-            runStream(task, maxSteps).forEach(event -> {
-                if (event instanceof ActionStep step) {
-                    System.out.println("Step " + step.stepNumber() + ": " + step.codeAction());
-                } else if (event instanceof ActionOutput output) {
-                    System.out.println("Final Answer: " + output.output());
-                }
-            });
-            return null;
+        if (!stream) {
+            return super.run(task);
         }
-        return super.run(task, false);
+
+        String augmentedTask = primeConversation(task, AgentRunControls.DEFAULT);
+        AgentExecutionResult result = executeAgentLoop(augmentedTask, AgentRunControls.DEFAULT, actionStep -> {
+            System.out.println("Step " + actionStep.stepNumber() + ": " + actionStep.codeAction());
+            if (actionStep.isFinalAnswer()) {
+                System.out.println("Final Answer: " + actionStep.actionOutput());
+            }
+        });
+        return result.output();
     }
     
     private String parseCodeBlobs(String content) {
@@ -268,24 +291,12 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
         return jsonOutput;
     }
     
-    private String fixFinalAnswerCode(String code) {
-        return code;
-    }
-    
     private String truncateOutput(String output) {
         int maxLen = 50000;
         if (output.length() > maxLen) {
             return output.substring(0, maxLen) + "... [truncated]";
         }
         return output;
-    }
-    
-    private String populateTemplate(String template, Map<String, Object> variables) {
-        String result = template;
-        for (Map.Entry<String, Object> entry : variables.entrySet()) {
-            result = result.replace("{" + entry.getKey() + "}", entry.getValue().toString());
-        }
-        return result;
     }
     
     public void cleanup() {
@@ -447,123 +458,80 @@ public class CodeAgent extends MultiStepAgent implements AutoCloseable {
     }
     
     /**
-     * 推送Agent到Hugging Face Hub
-     * 
-     * @param repoId 仓库ID（格式：username/repo-name）
-     * @param token Hugging Face API令牌
+     * 推送Agent到Hugging Face Hub。
+     *
+     * @param repoId 仓库ID（格式：username/repo-name 或 namespace/repo-name）
+     * @param token  Hugging Face API令牌
      */
     public void pushToHub(String repoId, String token) throws Exception {
         pushToHub(repoId, token, "main");
     }
-    
+
     /**
-     * 推送Agent到Hugging Face Hub
-     * 
-     * @param repoId 仓库ID（格式：username/repo-name）
-     * @param token Hugging Face API令牌
-     * @param revision 分支名
+     * 推送Agent到Hugging Face Hub，指定分支。
+     *
+     * @param repoId   仓库ID（格式：username/repo-name）
+     * @param token    Hugging Face API令牌
+     * @param revision 分支/标签名
      */
     public void pushToHub(String repoId, String token, String revision) throws Exception {
-        logger.log("Pushing CodeAgent to Hub: " + repoId);
-        
-        // 创建临时目录保存Agent
+        logger.log("Pushing CodeAgent to Hub: " + repoId, LogLevel.INFO);
+
+        HubClient hub = new HubClient(token);
+        hub.ensureRepo(repoId);
+
         Path tempDir = Files.createTempDirectory("smolagent-hub-push");
-        String tempPath = tempDir.toString();
-        
         try {
-            // 保存Agent到临时目录
-            save(tempPath);
-            
-            // 在实际实现中，这里会使用Hugging Face Hub Java客户端上传
-            // 例如使用 huggingface-hub-java 库
-            logger.log("Uploading to Hugging Face Hub...", LogLevel.INFO);
-            
-            // 模拟上传过程
-            Thread.sleep(1000);
-            
-            logger.log("Successfully pushed CodeAgent to " + repoId, 
-                      LogLevel.INFO);
-            
+            save(tempDir.toString());
+            hub.uploadDirectory(repoId, revision, tempDir);
+            logger.log("Successfully pushed CodeAgent to " + repoId, LogLevel.INFO);
         } finally {
-            // 清理临时目录
             deleteDirectory(tempDir);
         }
     }
-    
+
     /**
-     * 从Hugging Face Hub加载Agent
-     * 
+     * 从Hugging Face Hub加载Agent。
+     *
      * @param repoId 仓库ID（格式：username/repo-name）
-     * @param model 模型实例
-     * @param token Hugging Face API令牌
+     * @param model  模型实例
+     * @param token  Hugging Face API令牌
      * @return 加载的CodeAgent实例
      */
     public static CodeAgent fromHub(String repoId, Model model, String token) throws Exception {
         return fromHub(repoId, model, token, "main");
     }
-    
+
     /**
-     * 从Hugging Face Hub加载Agent
-     * 
-     * @param repoId 仓库ID（格式：username/repo-name）
-     * @param model 模型实例
-     * @param token Hugging Face API令牌
-     * @param revision 分支名
+     * 从Hugging Face Hub加载Agent，指定分支。
+     *
+     * @param repoId   仓库ID（格式：username/repo-name）
+     * @param model    模型实例
+     * @param token    Hugging Face API令牌
+     * @param revision 分支/标签名
      * @return 加载的CodeAgent实例
      */
     public static CodeAgent fromHub(String repoId, Model model, String token, String revision) throws Exception {
         AgentLogger logger = new AgentLogger(LogLevel.INFO);
-        logger.log("Loading CodeAgent from Hub: " + repoId);
-        
-        // 创建临时目录
+        logger.log("Loading CodeAgent from Hub: " + repoId, LogLevel.INFO);
+
+        HubClient hub = new HubClient(token);
+
         Path tempDir = Files.createTempDirectory("smolagent-hub-pull");
-        String tempPath = tempDir.toString();
-        
         try {
-            // 在实际实现中，这里会使用Hugging Face Hub Java客户端下载
-            logger.log("Downloading from Hugging Face Hub...", LogLevel.INFO);
-            
-            // 模拟下载过程
-            Thread.sleep(1000);
-            
-            // 创建必要的目录结构和文件（模拟下载）
-            Files.createDirectories(Paths.get(tempPath, "tools"));
-            
-            // 创建配置文件（简化版）
-            String configJson = """
-                {
-                    "authorized_imports": ["math", "random"],
-                    "executor_type": "python_local",
-                    "executor_kwargs": {},
-                    "code_block_tags": ["```python", "```"],
-                    "use_structured_outputs_internally": false,
-                    "stream_outputs": false,
-                    "max_steps": 20
-                }
-                """;
-            Files.writeString(Paths.get(tempPath, "config.json"), configJson);
-            
-            // 创建系统提示词文件
-            Files.writeString(Paths.get(tempPath, "system_prompt.txt"), 
-                           "You are a helpful assistant that writes Python code.");
-            
-            // 从文件夹加载Agent
-            CodeAgent agent = fromFolder(tempPath, model);
-            logger.log("Successfully loaded CodeAgent from " + repoId, 
-                      LogLevel.INFO);
-            
+            hub.downloadAll(repoId, revision, tempDir);
+            CodeAgent agent = fromFolder(tempDir.toString(), model);
+            logger.log("Successfully loaded CodeAgent from " + repoId, LogLevel.INFO);
             return agent;
-            
         } finally {
-            // 清理临时目录
             deleteDirectory(tempDir);
         }
     }
-    
+
     private static void deleteDirectory(Path path) throws IOException {
         if (Files.exists(path)) {
             Files.walk(path)
-                 .sorted((a, b) -> b.compareTo(a)) // 逆序，先删除文件再删除目录
+                 .sorted((a, b) -> b.compareTo(a))
                  .forEach(p -> {
                      try {
                          Files.delete(p);

@@ -140,7 +140,8 @@ public class CodeAgentTest {
     private static class MockModel implements Model {
         @Override
         public ChatMessage generate(List<ChatMessage> messages) {
-            return ChatMessage.text(MessageRole.ASSISTANT, "```java\nreturn \"AI is Artificial Intelligence\";\n```");
+            return ChatMessage.text(MessageRole.ASSISTANT,
+                "```python\nfinal_answer(\"AI is Artificial Intelligence\")\n```");
         }
         
         @Override
@@ -150,6 +151,17 @@ public class CodeAgentTest {
         
         @Override
         public ChatMessage generate(List<ChatMessage> messages, List<Tool> tools, ResponseFormat format) {
+            return generate(messages);
+        }
+
+        @Override
+        public ChatMessage generate(
+            List<ChatMessage> messages,
+            List<Tool> tools,
+            List<String> stopSequences,
+            ResponseFormat format,
+            Map<String, Object> extraParameters
+        ) {
             return generate(messages);
         }
         

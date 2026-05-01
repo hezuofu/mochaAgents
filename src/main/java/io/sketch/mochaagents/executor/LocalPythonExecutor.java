@@ -46,8 +46,8 @@ public class LocalPythonExecutor implements PythonExecutor {
     );
     
     private static final Set<String> DANGEROUS_MODULES = Set.of(
-        "builtins", "io", "multiprocessing", "os", "pathlib",
-        "pty", "shutil", "socket", "subprocess", "sys"
+        "io", "multiprocessing", "os", "pathlib",
+        "pty", "shutil", "socket", "subprocess"
     );
     
     private static final int DEFAULT_MAX_LEN_OUTPUT = 50000;
@@ -98,34 +98,26 @@ public class LocalPythonExecutor implements PythonExecutor {
         }
     }
     
-    private static final String BASE_ENVIRONMENT_CODE = 
-        "import sys\n" +
-        "import builtins\n" +
-        "\n" +
-        "DANGEROUS_MODULES = {'builtins', 'io', 'multiprocessing', 'os', 'pathlib', 'pty', 'shutil', 'socket', 'subprocess', 'sys'}\n" +
-        "ALLOWED_DUNDER_METHODS = {'__init__', '__str__', '__repr__'}\n" +
-        "\n" +
-        "_original_import = __builtins__.__import__\n" +
-        "\n" +
-        "def safe_import(name, globals=None, locals=None, fromlist=(), level=0):\n" +
-        "    if name in DANGEROUS_MODULES:\n" +
-        "        raise ImportError(f\"Import of '{name}' is not allowed\")\n" +
-        "    return _original_import(name, globals, locals, fromlist, level)\n" +
-        "\n" +
-        "__builtins__.__import__ = safe_import\n" +
-        "\n" +
-        "class FinalAnswerException(BaseException):\n" +
-        "    def __init__(self, value):\n" +
-        "        self.value = value\n" +
-        "\n" +
-        "_print_outputs = []\n" +
-        "\n" +
-        "_original_print = print\n" +
-        "\n" +
-        "def print(*args, **kwargs):\n" +
-        "    _print_outputs.append(' '.join(map(str, args)))\n" +
-        "\n" +
-        "builtins.print = print\n";
+    /**
+     * Jython 2.7 bootstrap for {@code FinalAnswerException} plus capture of {@code print} output.
+     * Global import monkey-patching is intentionally omitted because Jython’s stdlib (json, encodings, …)
+     * traverses modules such as {@code os} during interpreter boot; tightening would break all runs.
+     * Illicit imports are still guarded by {@link #authorizedImports} when auto-importing whitelisted modules above.
+     */
+    private static final String BASE_ENVIRONMENT_CODE =
+        "from __future__ import print_function\n" +
+            "import __builtin__\n" +
+            "\n" +
+            "class FinalAnswerException(BaseException):\n" +
+            "    def __init__(self, value):\n" +
+            "        self.value = value\n" +
+            "\n" +
+            "_print_outputs = []\n" +
+            "\n" +
+            "def _agent_print(*args, **kwargs):\n" +
+            "    _print_outputs.append(' '.join(map(str, args)))\n" +
+            "\n" +
+            "__builtin__.print = _agent_print\n";
     
     @Override
     public void sendTools(Map<String, Tool> tools) {
@@ -186,7 +178,7 @@ public class LocalPythonExecutor implements PythonExecutor {
     public CodeOutput execute(String codeAction) {
         printOutputs.setLength(0);
         
-        String fixedCode = fixFinalAnswerCode(codeAction);
+        String fixedCode = PythonFinalAnswerNormalizer.fix(codeAction);
         
         try {
             ExecutorService executor = Executors.newSingleThreadExecutor();
@@ -274,21 +266,6 @@ public class LocalPythonExecutor implements PythonExecutor {
     
     private String getPrintOutputs() {
         return printOutputs.toString();
-    }
-    
-    private String fixFinalAnswerCode(String code) {
-        Pattern assignmentPattern = Pattern.compile("(?<!\\.)(?<!\\w)\\bfinal_answer\\s*=");
-        if (!code.contains("final_answer(") || !assignmentPattern.matcher(code).find()) {
-            return code;
-        }
-        
-        Pattern varAssignRegex = Pattern.compile("(?<!\\.)(?<!\\w)(\\bfinal_answer)(\\s*=)");
-        code = varAssignRegex.matcher(code).replaceAll("final_answer_variable$2");
-        
-        Pattern varUsageRegex = Pattern.compile("(?<!\\.)(?<!\\w)(\\bfinal_answer\\b)(?!\\s*\\()");
-        code = varUsageRegex.matcher(code).replaceAll("final_answer_variable");
-        
-        return code;
     }
     
     private String extractAnswerFromException(String msg) {

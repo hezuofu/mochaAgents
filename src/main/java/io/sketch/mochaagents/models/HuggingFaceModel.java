@@ -127,6 +127,17 @@ public class HuggingFaceModel implements Model {
     }
     
     @Override
+    public ChatMessage generate(
+        List<ChatMessage> messages,
+        List<Tool> tools,
+        List<String> stopSequences,
+        ResponseFormat format,
+        Map<String, Object> extraParameters
+    ) {
+        return generate(messages, tools, format);
+    }
+
+    @Override
     public String getModelId() {
         return modelId;
     }

@@ -1,10 +1,10 @@
-package io.sketch.mochaagents.examples;
+package io.sketch.mochaagents.examples.plan_customization;
 
 import io.sketch.mochaagents.agents.CodeAgent;
 import io.sketch.mochaagents.models.InferenceClientModel;
 import io.sketch.mochaagents.tools.BaseTool;
 
-public class ServerExample {
+public class PlanCustomizationExample {
 
     public static class CalculatorTool extends BaseTool {
         public CalculatorTool() {
@@ -30,9 +30,8 @@ public class ServerExample {
             .model(new InferenceClientModel("meta-llama/Llama-3.3-70B-Instruct"))
             .build()) {
 
-            System.out.println("Server example - simulating server startup...");
-            Object result = agent.run("Calculate 100 + 200");
-            System.out.println("Calculation result: " + result);
+            Object result = agent.run("What is (25 * 4) + (18 / 3) - 5?");
+            System.out.println("Result: " + result);
         }
     }
 }

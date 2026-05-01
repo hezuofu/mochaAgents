@@ -2,14 +2,12 @@ package io.sketch.mochaagents.cli;
 
 import io.sketch.mochaagents.agents.CodeAgent;
 import io.sketch.mochaagents.agents.ToolCallingAgent;
-import io.sketch.mochaagents.models.AzureOpenAIModel;
-import io.sketch.mochaagents.models.HuggingFaceModel;
+import io.sketch.mochaagents.ui.SimpleAgentHttpServer;
 import io.sketch.mochaagents.models.Model;
-import io.sketch.mochaagents.models.OpenAIModel;
+import io.sketch.mochaagents.registry.BuiltinToolCatalog;
+import io.sketch.mochaagents.registry.ModelConnectionConfig;
+import io.sketch.mochaagents.registry.ModelRegistry;
 import io.sketch.mochaagents.tools.Tool;
-import io.sketch.mochaagents.tools.defaults.DuckDuckGoSearchTool;
-import io.sketch.mochaagents.tools.defaults.VisitWebpageTool;
-import io.sketch.mochaagents.tools.defaults.WikipediaSearchTool;
 
 import java.io.FileInputStream;
 import java.io.IOException;
@@ -17,9 +15,8 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Properties;
 import java.util.Scanner;
 
@@ -28,15 +25,28 @@ public class Cli {
     private static final String LEOPARD_PROMPT = "How many seconds would it take for a leopard at full speed to run through Pont des Arts?";
     private static final String VERSION = "1.0.0";
     
-    private static final Map<String, Class<? extends Tool>> TOOL_MAPPING = new HashMap<>();
-    static {
-        TOOL_MAPPING.put("web_search", DuckDuckGoSearchTool.class);
-        TOOL_MAPPING.put("wikipedia", WikipediaSearchTool.class);
-        TOOL_MAPPING.put("visit_webpage", VisitWebpageTool.class);
-    }
-    
     public static void main(String[] args) {
+        if (args.length > 0 && "serve".equalsIgnoreCase(args[0])) {
+            try {
+                SimpleAgentHttpServer.main(Arrays.copyOfRange(args, 1, args.length));
+            } catch (Exception e) {
+                System.err.println(e.getMessage());
+                e.printStackTrace();
+                System.exit(1);
+            }
+            return;
+        }
+
+        boolean webAssistant = false;
+        if (args.length > 0 && "webagent".equalsIgnoreCase(args[0])) {
+            webAssistant = true;
+            args = Arrays.copyOfRange(args, 1, args.length);
+        }
+
         Args parsedArgs = parseArguments(args);
+        if (webAssistant) {
+            applyWebBrowsingAssistantDefaults(parsedArgs);
+        }
         
         if (parsedArgs.help) {
             printHelp();
@@ -161,6 +171,10 @@ public class Cli {
         System.out.println("  java -jar smolagents.jar -at tool_calling -t web_search wikipedia \"Search for AI news\"");
         System.out.println("  java -jar smolagents.jar -mt OpenAIModel -mi gpt-4o \"Write a Python function\"");
         System.out.println();
+        System.out.println("Product-style commands:");
+        System.out.println("  java … Cli serve [--port N]           # minimal browser UI (JDK HttpServer)");
+        System.out.println("  java … Cli webagent PROMPT           # preset: tool_calling + search + wiki + webpage");
+        System.out.println();
     }
     
     private static void printVersion() {
@@ -190,9 +204,11 @@ public class Cli {
         System.out.println("\n[2/5] Select Tools");
         System.out.println("──────────────────");
         System.out.println("Available Tools:");
+        List<String> aliases = new ArrayList<>(BuiltinToolCatalog.registeredAliases());
+        Collections.sort(aliases);
         int idx = 1;
-        for (Map.Entry<String, Class<? extends Tool>> entry : TOOL_MAPPING.entrySet()) {
-            System.out.println("  " + idx++ + ". " + entry.getKey());
+        for (String alias : aliases) {
+            System.out.println("  " + idx++ + ". " + alias);
         }
         System.out.println("\nEnter tool names separated by spaces (e.g., 'web_search')");
         System.out.print("Select tools for your agent [web_search]: ");
@@ -270,34 +286,7 @@ public class Cli {
     private static Model loadModel(String modelType, String modelId,
                                    String apiBase, String apiKey, String provider) {
         loadEnv();
-        
-        switch (modelType) {
-            case "OpenAIModel":
-                return OpenAIModel.builder()
-                    .apiKey(apiKey != null ? apiKey : System.getenv("FIREWORKS_API_KEY"))
-                    .apiBase(apiBase != null ? apiBase : "https://api.fireworks.ai/inference/v1")
-                    .modelId(modelId)
-                    .build();
-            case "AzureOpenAIModel":
-                return AzureOpenAIModel.builder()
-                    .apiKey(apiKey != null ? apiKey : System.getenv("AZURE_OPENAI_API_KEY"))
-                    .apiBase(apiBase)
-                    .modelId(modelId)
-                    .build();
-            case "HuggingFaceModel":
-                return HuggingFaceModel.builder()
-                    .modelId(modelId)
-                    .apiKey(apiKey != null ? apiKey : System.getenv("HF_API_KEY"))
-                    .provider(provider)
-                    .build();
-            case "InferenceClientModel":
-            default:
-                return HuggingFaceModel.builder()
-                    .modelId(modelId)
-                    .apiKey(apiKey != null ? apiKey : System.getenv("HF_API_KEY"))
-                    .provider(provider)
-                    .build();
-        }
+        return ModelRegistry.create(modelType, new ModelConnectionConfig(modelId, apiBase, apiKey, provider));
     }
     
     private static void runSmolagent(String prompt, List<String> tools, String modelType,
@@ -324,15 +313,10 @@ public class Cli {
                         .toLowerCase().replace("-", "_").replace(".", "_");
                     System.out.println("Loading tool from Hugging Face Space: " + toolName);
                 } else {
-                    Class<? extends Tool> toolClass = TOOL_MAPPING.get(toolName);
-                    if (toolClass != null) {
-                        try {
-                            availableTools.add(toolClass.getDeclaredConstructor().newInstance());
-                        } catch (Exception e) {
-                            throw new RuntimeException("Failed to create tool: " + toolName, e);
-                        }
-                    } else {
-                        throw new IllegalArgumentException("Tool " + toolName + " is not recognized");
+                    try {
+                        availableTools.add(BuiltinToolCatalog.create(toolName));
+                    } catch (IllegalArgumentException e) {
+                        throw new IllegalArgumentException("Tool " + toolName + " is not recognized", e);
                     }
                 }
             }
@@ -381,7 +365,19 @@ public class Cli {
         }
     }
     
-    private static void loadEnv() {
+    private static void applyWebBrowsingAssistantDefaults(Args parsedArgs) {
+        parsedArgs.actionType = "tool_calling";
+        parsedArgs.verbose = true;
+        parsedArgs.tools = new ArrayList<>(List.of("web_search", "visit_webpage", "wikipedia"));
+        if (parsedArgs.prompt != null && !parsedArgs.prompt.isBlank()) {
+            parsedArgs.prompt =
+                "You are a web research assistant with search and page-fetch tools. Prefer visit_webpage for URLs "
+                    + "mentioned and web_search when you need topical results.\n\n"
+                    + parsedArgs.prompt;
+        }
+    }
+
+    public static void loadEnv() {
         try {
             FileInputStream fis = new FileInputStream(".env");
             Properties props = new Properties();

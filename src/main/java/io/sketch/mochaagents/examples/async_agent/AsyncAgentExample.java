@@ -1,4 +1,4 @@
-package io.sketch.mochaagents.examples;
+package io.sketch.mochaagents.examples.async_agent;
 
 import io.sketch.mochaagents.agents.CodeAgent;
 import io.sketch.mochaagents.models.InferenceClientModel;
@@ -23,7 +23,7 @@ public class AsyncAgentExample {
     public static void main(String[] args) throws IOException {
         int port = 8000;
         HttpServer server = HttpServer.create(new InetSocketAddress(port), 0);
-        
+
         // Create thread pool for async processing
         ExecutorService executor = Executors.newFixedThreadPool(4);
         server.setExecutor(executor);
@@ -38,10 +38,10 @@ public class AsyncAgentExample {
 
                 // Read request body
                 String requestBody = new String(exchange.getRequestBody().readAllBytes());
-                
+
                 // Parse task from JSON (simplified)
                 String task = extractTaskFromJson(requestBody);
-                
+
                 if (task == null || task.isEmpty()) {
                     String response = "{\"error\": \"Missing 'task' in request body.\"}";
                     exchange.sendResponseHeaders(400, response.getBytes().length);
@@ -85,12 +85,12 @@ public class AsyncAgentExample {
         // Simplified JSON parsing
         int taskStart = json.indexOf("\"task\":");
         if (taskStart == -1) return null;
-        
+
         int valueStart = json.indexOf("\"", taskStart + 7);
         int valueEnd = json.indexOf("\"", valueStart + 1);
-        
+
         if (valueStart == -1 || valueEnd == -1) return null;
-        
+
         return json.substring(valueStart + 1, valueEnd);
     }
 

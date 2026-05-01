@@ -35,10 +35,14 @@ public class AgentMemory {
     }
     
     public List<ChatMessage> toMessages() {
+        return toMessages(false);
+    }
+    
+    public List<ChatMessage> toMessages(boolean summaryMode) {
         List<ChatMessage> messages = new ArrayList<>();
-        messages.addAll(systemPrompt.toMessages());
+        messages.addAll(systemPrompt.toMessages(summaryMode));
         for (MemoryStep step : steps) {
-            messages.addAll(step.toMessages());
+            messages.addAll(step.toMessages(summaryMode));
         }
         return messages;
     }

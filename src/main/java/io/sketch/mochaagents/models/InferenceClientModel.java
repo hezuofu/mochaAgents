@@ -3,6 +3,7 @@ package io.sketch.mochaagents.models;
 import io.sketch.mochaagents.tools.Tool;
 
 import java.util.List;
+import java.util.Map;
 
 public class InferenceClientModel implements Model {
     private final String modelId;
@@ -39,6 +40,17 @@ public class InferenceClientModel implements Model {
     @Override
     public ChatMessage generate(List<ChatMessage> messages, List<Tool> tools, ResponseFormat format) {
         return generate(messages);
+    }
+
+    @Override
+    public ChatMessage generate(
+        List<ChatMessage> messages,
+        List<Tool> tools,
+        List<String> stopSequences,
+        ResponseFormat format,
+        Map<String, Object> extraParameters
+    ) {
+        return generate(messages, tools, format);
     }
 
     @Override
